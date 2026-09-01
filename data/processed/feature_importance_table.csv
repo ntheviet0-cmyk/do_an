@@ -1,0 +1,17 @@
+feature,importance,group
+evt_National,0.26165307,Mùa vụ/Ngoại sinh
+avg_discount,0.12338266,Giá/Khuyến mãi
+cos_wday,0.122626886,Mùa vụ/Ngoại sinh
+evt_Sporting,0.09971406,Mùa vụ/Ngoại sinh
+cos_month,0.08632393,Mùa vụ/Ngoại sinh
+sin_month,0.07477423,Mùa vụ/Ngoại sinh
+event_count,0.05485056,Mùa vụ/Ngoại sinh
+mean_price,0.047553033,Giá/Khuyến mãi
+snap_active,0.027156666,Mùa vụ/Ngoại sinh
+has_event,0.018364865,Mùa vụ/Ngoại sinh
+is_weekend,0.015736425,Mùa vụ/Ngoại sinh
+days_to_next_event,0.015491542,Mùa vụ/Ngoại sinh
+evt_Cultural,0.01450957,Mùa vụ/Ngoại sinh
+days_since_last_event,0.013754237,Mùa vụ/Ngoại sinh
+sin_wday,0.013702767,Mùa vụ/Ngoại sinh
+evt_Religious,0.010405439,Mùa vụ/Ngoại sinh
