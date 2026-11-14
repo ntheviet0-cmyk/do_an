@@ -35,8 +35,11 @@ def main():
     df_store = store_df[store_df["store_id"] == target_store].sort_values("d_num").reset_index(drop=True)
 
     past_feature_cols = ["total_sales", "sales_lag_28", "sales_lag_35",
-                         "sales_rolling_mean_7", "sales_rolling_mean_28"]
-    future_feature_cols = ["mean_price", "avg_discount", "is_weekend", "sin_wday",
+                         "sales_rolling_mean_7", "sales_rolling_mean_28",
+                         "mean_price_lag_28", "avg_discount_lag_28",
+                         "mean_price_rolling_mean_7"]
+    # PHUONG AN A: FUTURE chi lich/SNAP/su kien (gia la unknown future)
+    future_feature_cols = ["is_weekend", "sin_wday",
                            "cos_wday", "sin_month", "cos_month", "snap_active",
                            "has_event", "event_count", "evt_Cultural", "evt_Religious",
                            "evt_Sporting", "evt_National", "days_to_next_event",

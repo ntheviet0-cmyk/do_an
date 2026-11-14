@@ -116,10 +116,10 @@ def audit_leakage():
     print(f"    - Test bắt đầu tại d{first_test_d}, sales_lag_28 phải = total_sales tại d{expected_lag_src_d} (thuộc Val)")
     print(f"    - Giá trị lag thực tế = {lag_val_actual}, giá trị nguồn = {lag_val_expected} -> {'OK' if ok else 'KHÔNG OK'}")
 
-    # (d) Future-known features phải là thông tin_publich trước khi dự báo (calendar known)
-    future_known = ["mean_price", "avg_discount", "is_weekend", "sin_wday", "cos_wday",
+    # (d) Future-known features PHUONG AN A: chi lich/SNAP/su kien (gia la unknown future)
+    future_known = ["is_weekend", "sin_wday", "cos_wday",
                     "sin_month", "cos_month", "snap_active", "has_event"]
-    print("\n* Đặc trưng 'known-future' (lấy từ calendar/giá - đã biết trước, KHÔNG phải target):")
+    print("\n* Dac trung 'known-future' (lich/SNAP/su kien da biet truoc, KHONG phai target):")
     missing_future = [c for c in future_known if c not in df.columns]
     print(f"    - Đầy đủ trong dữ liệu? {'Có' if not missing_future else 'Thiếu: '+str(missing_future)}")
     print("    - Quan trọng: các cột này là biến ngoại sinh/biến lịch, KHÔNG chứa total_sales tương lai"

@@ -14,10 +14,11 @@ TARGET = "total_sales"
 HORIZONS = (1, 7, 28)
 THRESHOLD = 0.30
 
-# Nhóm known-future (lấy từ calendar/giá, đã biết trước) -> WHITELIST, không tính leak
+# PHUONG AN A: gia la UNKNOWN future -> khong whitelist, de may quet bat leak.
+# Chi lich/SNAP/su kien moi la known-future hop le.
 WHITELIST_PREFIX = ("sin_", "cos_", "is_weekend", "has_event", "event_", "evt_",
-                    "days_to_", "days_since_", "snap_", "mean_price", "avg_discount",
-                    "price_", "weekday", "wday", "month", "day")
+                    "days_to_", "days_since_", "snap_",
+                    "weekday", "wday", "month", "day")
 
 
 def leak_score(feature_vals, target_vals, horizons):

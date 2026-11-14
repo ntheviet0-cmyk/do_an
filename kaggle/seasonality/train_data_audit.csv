@@ -1,0 +1,2 @@
+synthetic,data_root,train_end,start_date,end_date,n_series,sample_series_requested,zero_rate,seed
+False,/kaggle/input/competitions/m5-forecasting-accuracy,1885,2011-01-29,2016-03-27,30490,0,0.6837330498411011,42

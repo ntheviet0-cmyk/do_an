@@ -40,19 +40,20 @@ def run_phase4_experiment():
     df_store = store_df[store_df["store_id"] == target_store].sort_values("d_num").reset_index(drop=True)
 
     # 2. Định nghĩa các nhóm đặc trưng cho TFT
-    # A. Past Features (Chỉ biết trong quá khứ t - seq_len đến t)
+    # A. Past Features (PHUONG AN A: gia chi dung ban lagged <= t, khong dung gia tuong lai)
     past_feature_cols = [
         "total_sales",
         "sales_lag_28",
         "sales_lag_35",
         "sales_rolling_mean_7",
-        "sales_rolling_mean_28"
+        "sales_rolling_mean_28",
+        "mean_price_lag_28",
+        "avg_discount_lag_28",
+        "mean_price_rolling_mean_7",
     ]
 
-    # B. Known-Future Features (Biết trước cho cả tương lai t đến t + horizon)
+    # B. Known-Future Features (chi lich + SNAP + su kien da biet truoc; KHONG co gia)
     future_feature_cols = [
-        "mean_price",
-        "avg_discount",
         "is_weekend",
         "sin_wday",
         "cos_wday",

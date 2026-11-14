@@ -1,0 +1,11 @@
+{
+  "base_mode": "HIER_L3_L9",
+  "alpha": 1.0,
+  "k": 5.0,
+  "store_tolerance": 0.02,
+  "selection_days": [
+    1872,
+    1885
+  ],
+  "selection_metric": "WRMSSE_5levels"
+}

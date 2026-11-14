@@ -1,0 +1,11 @@
+{
+  "alpha": 1.0,
+  "k": 20.0,
+  "store_tolerance": 0.02,
+  "selection_days": [
+    1900,
+    1913
+  ],
+  "selection_metric": "L12_WRMSSE",
+  "strategy": "shrink series factors directly from BU"
+}

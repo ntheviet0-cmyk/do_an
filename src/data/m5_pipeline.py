@@ -112,32 +112,52 @@ class M5DataPipeline:
 
         return calendar
 
-    def load_prices(self) -> pd.DataFrame:
+    def load_prices(self, train_end_wk: Optional[int] = None) -> pd.DataFrame:
         """
-        Load và tạo đặc trưng cho bảng sell_prices.csv
+        Load và tạo đặc trưng cho bảng sell_prices.csv (Option A: frozen train stats).
+
+        Args:
+            train_end_wk: wm_yr_wk cutoff của train. price_max/min/mean/std chỉ tính
+                trên prices[wm_yr_wk <= train_end_wk] để chống leak tương lai.
+                Nếu None -> tính trên full (fallback test nhanh, có warning leak).
         """
         print("[+] Đang load và xử lý sell_prices.csv...")
         prices = pd.read_csv(self.prices_path)
         prices = reduce_mem_usage(prices, verbose=False)
 
-        # Tạo đặc trưng động về giá (Price Dynamics)
-        # 1. Giá trung bình và giá cao nhất lịch sử theo item_id & store_id
-        price_stats = prices.groupby(["store_id", "item_id"])["sell_price"].agg(
-            price_max="max",
-            price_min="min",
-            price_mean="mean",
-            price_std="std"
-        ).reset_index()
+        # Tạo đặc trưng động về giá (Price Dynamics) - FROZEN theo train
+        # 1. Giá trung bình và giá cao nhất lịch sử theo store_id & item_id (chỉ trên train)
+        if train_end_wk is not None:
+            train_prices = prices[prices["wm_yr_wk"] <= train_end_wk]
+            print(f"[-] Frozen price stats trên train (wm_yr_wk <= {train_end_wk}, "
+                  f"{len(train_prices):,} dòng train / {len(prices):,} dòng full)...")
+            price_stats = train_prices.groupby(["store_id", "item_id"])["sell_price"].agg(
+                price_max="max",
+                price_min="min",
+                price_mean="mean",
+                price_std="std"
+            ).reset_index()
+        else:
+            print("[!] WARNING: train_end_wk=None -> tính stats trên full (nguy cơ leak). "
+                  "Chỉ dùng để test nhanh, không dùng cho train/val chính thức.")
+            price_stats = prices.groupby(["store_id", "item_id"])["sell_price"].agg(
+                price_max="max",
+                price_min="min",
+                price_mean="mean",
+                price_std="std"
+            ).reset_index()
 
         prices = prices.merge(price_stats, on=["store_id", "item_id"], how="left")
 
-        # 2. Tỷ lệ giảm giá (Discount Ratio: giá hiện tại / giá cao nhất)
+        # 2. Tỷ lệ giảm giá (Discount Ratio: giá hiện tại / giá cao nhất train).
+        # Sale sâu chưa từng thấy ở train -> discount âm -> clip về [0, 1].
         prices["price_discount"] = (1.0 - prices["sell_price"] / prices["price_max"]).fillna(0).astype(np.float32)
+        prices["price_discount"] = prices["price_discount"].clip(0.0, 1.0).astype(np.float32)
 
-        # 3. Tỷ lệ biến động giá so với trung bình
+        # 3. Tỷ lệ biến động giá so với trung bình train
         prices["price_norm_mean"] = (prices["sell_price"] / prices["price_mean"]).fillna(1.0).astype(np.float32)
 
-        # 4. Momentum giá (So với tuần trước)
+        # 4. Momentum giá (So với tuần trước, chỉ dùng quá khứ -> không leak)
         prices["price_momentum"] = prices.groupby(["store_id", "item_id"])["sell_price"].pct_change().fillna(0).astype(np.float32)
 
         prices = reduce_mem_usage(prices, verbose=False)
@@ -147,20 +167,24 @@ class M5DataPipeline:
         self,
         start_day: int = 1000,
         end_day: int = 1913,
-        items_subset: Optional[List[str]] = None
+        items_subset: Optional[List[str]] = None,
+        train_end_day: int = 1885
     ) -> pd.DataFrame:
         """
-        Melt và merge toàn bộ dữ liệu ở cấp độ SKU (Level 12).
-        
+        Melt và merge toàn bộ dữ liệu ở cấp độ SKU (Level 12) - Option A chống leak.
+
         Args:
             start_day (int): Ngày bắt đầu lấy (mặc định lấy từ ngày 1000 để tối ưu RAM và loại bỏ drift cũ).
             end_day (int): Ngày kết thúc (1913 cho train/validation).
             items_subset (List[str], optional): Danh sách ID muốn lọc (nếu muốn train thử nghiệm nhanh).
+            train_end_day (int): Ngày kết thúc train (mặc định 1885, 28 ngày cuối
+                1886-1913 làm val giả lập H=28). price_max/mean chỉ tính đến ngày này.
 
         Returns:
             pd.DataFrame: Bảng dữ liệu long format hoàn chỉnh cấp độ SKU.
         """
-        print(f"[+] Đang xử lý sales_train_validation.csv (Từ d_{start_day} đến d_{end_day})...")
+        print(f"[+] Đang xử lý sales_train_validation.csv (Từ d_{start_day} đến d_{end_day}, "
+              f"train_end=d_{train_end_day})...")
         sales = pd.read_csv(self.sales_path)
         
         if items_subset is not None:
@@ -184,9 +208,19 @@ class M5DataPipeline:
 
         df = reduce_mem_usage(df, verbose=False)
 
-        # Load calendar & prices
+        # Load calendar trước để suy ra train_end_wk (chống leak giá)
         calendar = self.load_calendar()
-        prices = self.load_prices()
+        cal_day_map = calendar.set_index("d")["wm_yr_wk"]
+        # train_end_day dạng số -> key "d_{n}"
+        train_end_key = f"d_{train_end_day}"
+        if train_end_key in cal_day_map.index:
+            train_end_wk = int(cal_day_map.loc[train_end_key])
+        else:
+            # fallback: end_day nhỏ hơn train_end (chạy test nhanh) -> dùng max hiện có
+            train_end_wk = None
+            print(f"[!] train_end_day d_{train_end_day} ngoài phạm vi calendar của batch "
+                  f"(end_day=d_{end_day}). Dùng fallback full stats + warning.")
+        prices = self.load_prices(train_end_wk=train_end_wk)
 
         # Merge Calendar
         print("[-] Merging với Calendar features...")
@@ -196,18 +230,44 @@ class M5DataPipeline:
         print("[-] Merging với Price features...")
         df = df.merge(prices, on=["store_id", "item_id", "wm_yr_wk"], how="left")
 
-        # Xử lý missing giá (khi sản phẩm chưa được niêm yết bán tại tuần đó)
-        df["sell_price"] = df["sell_price"].fillna(0).astype(np.float32)
+        # Xử lý missing giá (left-censoring: chưa lên kệ -> sell_price NaN).
+        # Không fill 0 (giá 0 không tồn tại). Thêm cờ is_listed + fill median dept.
+        # PHUONG AN A (strict, chong leak): median fill CHI tinh tren train
+        # (d_num <= train_end_day), khong dung thong ke tuong lai (val/test).
+        df["is_listed"] = df["sell_price"].notna().astype(np.int8)
+        df["d_num"] = df["d"].apply(lambda x: int(x.split("_")[1])).astype(np.int16)
+        train_mask = df["d_num"] <= train_end_day
+        if train_mask.any():
+            dept_median_train = df.loc[train_mask].groupby("dept_id")["sell_price"].median()
+            global_median_train = float(df.loc[train_mask, "sell_price"].median())
+        else:  # fallback batch test nhanh ngoai pham vi train
+            dept_median_train = df.groupby("dept_id")["sell_price"].median()
+            global_median_train = float(df["sell_price"].median()) if df["sell_price"].notna().any() else 0.0
+            print("[!] train_mask rong -> dung fallback median (chi cho test nhanh).")
+        df["sell_price"] = (
+            df["sell_price"]
+            .fillna(df["dept_id"].map(dept_median_train))
+            .fillna(global_median_train)
+            .astype(np.float32)
+        )
         df["price_discount"] = df["price_discount"].fillna(0).astype(np.float32)
         df["price_norm_mean"] = df["price_norm_mean"].fillna(1.0).astype(np.float32)
         df["price_momentum"] = df["price_momentum"].fillna(0).astype(np.float32)
 
-        # Chuyển đổi cột d dạng chuỗi "d_123" thành số nguyên 123
-        df["d_num"] = df["d"].apply(lambda x: int(x.split("_")[1])).astype(np.int16)
-
         # 3. Kỹ nghệ đặc trưng Lag & Rolling (CHỐNG LEAKAGE)
         print("[-] Tạo Lag và Rolling features (Độ trễ tối thiểu >= 28 ngày)...")
         df = self._add_lag_and_rolling_features(df)
+
+        # Bỏ warmup rows chưa đủ 28 ngày lịch sử (lag_28 NaN -> model không học được)
+        before = len(df)
+        df = df.dropna(subset=["sales_lag_28"]).reset_index(drop=True)
+        print(f"[-] Drop warmup thiếu lag_28: {before - len(df):,} dòng "
+              f"(còn {len(df):,} dòng).")
+
+        # Assert chống leak giá: price_max phải frozen theo train
+        if train_end_wk is not None:
+            print(f"[-] Verify frozen stats: train_end_wk={train_end_wk} "
+                  f"(price_max/min/mean tính đến tuần này, val dùng lại).")
 
         df = reduce_mem_usage(df, verbose=True)
         print("[✓] Hoàn thành tiền xử lý dữ liệu SKU-Level!")
@@ -217,6 +277,8 @@ class M5DataPipeline:
         """
         Tính toán các đặc trưng trễ và thống kê trượt theo từng chuỗi 'id'.
         Lưu ý: Mọi lag đều bắt đầu từ 28 ngày trở đi để phục vụ dự báo 28 ngày tới.
+        PHUONG AN A: gia (sell_price/discount/momentum) CHI dung ban lagged
+        (qua khu <= t), khong bao gio dung gia realtime tuong lai.
         """
         # Đảm bảo dữ liệu được sắp xếp đúng thứ tự thời gian
         df = df.sort_values(by=["id", "d_num"]).reset_index(drop=True)
@@ -253,9 +315,30 @@ class M5DataPipeline:
             .astype(np.float32)
         )
 
+        # --- PHUONG AN A: dac trung gia lagged (chi qua khu, dung cho PAST) ---
+        # sell_price / price_discount / price_momentum realtime la unknown future
+        # -> model chi duoc thay ban shift >= 28.
+        for lag in lags:
+            df[f"sell_price_lag_{lag}"] = df.groupby("id")["sell_price"].shift(lag).astype(np.float32)
+            df[f"price_discount_lag_{lag}"] = df.groupby("id")["price_discount"].shift(lag).astype(np.float32)
+            df[f"price_momentum_lag_{lag}"] = df.groupby("id")["price_momentum"].shift(lag).astype(np.float32)
+        df["sell_price_rolling_mean_7"] = (
+            df.groupby("id")["sell_price"]
+            .transform(lambda x: x.shift(28).rolling(window=7, min_periods=1).mean())
+            .astype(np.float32)
+        )
+        df["sell_price_rolling_mean_28"] = (
+            df.groupby("id")["sell_price"]
+            .transform(lambda x: x.shift(28).rolling(window=28, min_periods=1).mean())
+            .astype(np.float32)
+        )
+        # Alias giu tuong thich voi ten mean_price/avg_discount cu (dang lagged)
+        df["mean_price_lag_28"] = df["sell_price_lag_28"]
+        df["avg_discount_lag_28"] = df["price_discount_lag_28"]
+
         return df
 
-    def create_store_level_data(self, sku_df: pd.DataFrame) -> pd.DataFrame:
+    def create_store_level_data(self, sku_df: pd.DataFrame, train_end_day: int = 1885) -> pd.DataFrame:
         """
         Tổng hợp dữ liệu từ SKU-level lên Store-level (Level 3 - 10 chuỗi thời gian).
         
@@ -266,12 +349,20 @@ class M5DataPipeline:
             pd.DataFrame: Dữ liệu chuỗi thời gian tổng hợp cấp Store.
         """
         print("[+] Đang tổng hợp dữ liệu lên Store-Level (Level 3)...")
-        
+
+        # mean_price bỏ giá fill/missing (sell_price<=0 do fill median lỗi) -> dùng median
+        # của hàng listed để không kéo mean xuống oan. listed_ratio cho TFT biết độ phủ.
+        if "is_listed" in sku_df.columns:
+            sku_df["_price_listed"] = sku_df["sell_price"].where(sku_df["is_listed"] == 1)
+        else:
+            sku_df["_price_listed"] = sku_df["sell_price"].where(sku_df["sell_price"] > 0)
+
         # Nhóm theo store_id và ngày (date, d_num)
         store_agg = sku_df.groupby(["store_id", "date", "d_num"]).agg(
             total_sales=("sales", "sum"),
-            mean_price=("sell_price", "mean"),
+            mean_price=("_price_listed", "median"),
             avg_discount=("price_discount", "mean"),
+            listed_ratio=("is_listed", "mean") if "is_listed" in sku_df.columns else ("sales", "size"),
             is_weekend=("is_weekend", "first"),
             sin_wday=("sin_wday", "first"),
             cos_wday=("cos_wday", "first"),
@@ -282,13 +373,7 @@ class M5DataPipeline:
             state_id=("state_id", "first")
         ).reset_index()
 
-        # Thêm SNAP tương ứng theo bang của cửa hàng
-        snap_conditions = [
-            store_agg["state_id"] == "CA",
-            store_agg["state_id"] == "TX",
-            store_agg["state_id"] == "WI"
-        ]
-        # Map calendar SNAP tương ứng
+        # Map calendar SNAP tương ứng theo bang (CA/TX/WI riêng)
         calendar = self.load_calendar()
         store_agg = store_agg.merge(calendar[["date", "snap_CA", "snap_TX", "snap_WI"]], on="date", how="left")
         
@@ -310,10 +395,13 @@ class M5DataPipeline:
         store_agg = store_agg.merge(calendar[cal_event_cols], on="date", how="left")
 
 
-        # Thêm Lags cho Store Total Sales
+        # Thêm Lags cho Store Total Sales + gia lagged (PHUONG AN A:
+        # mean_price/avg_discount realtime la unknown future -> chi dung ban lagged)
         store_agg = store_agg.sort_values(by=["store_id", "d_num"]).reset_index(drop=True)
         for lag in [28, 35, 42, 56]:
             store_agg[f"sales_lag_{lag}"] = store_agg.groupby("store_id")["total_sales"].shift(lag).astype(np.float32)
+            store_agg[f"mean_price_lag_{lag}"] = store_agg.groupby("store_id")["mean_price"].shift(lag).astype(np.float32)
+            store_agg[f"avg_discount_lag_{lag}"] = store_agg.groupby("store_id")["avg_discount"].shift(lag).astype(np.float32)
 
         store_agg["sales_rolling_mean_7"] = (
             store_agg.groupby("store_id")["total_sales"]
@@ -325,6 +413,27 @@ class M5DataPipeline:
             .transform(lambda x: x.shift(28).rolling(window=28, min_periods=1).mean())
             .astype(np.float32)
         )
+        store_agg["mean_price_rolling_mean_7"] = (
+            store_agg.groupby("store_id")["mean_price"]
+            .transform(lambda x: x.shift(28).rolling(window=7, min_periods=1).mean())
+            .astype(np.float32)
+        )
+
+        # Fill mean_price còn NaN (ngày không có hàng listed nào) + drop warmup lag
+        # PHUONG AN A: median CHI tinh tren train (d_num <= train_end_day).
+        train_med = store_agg.loc[store_agg["d_num"] <= train_end_day, "mean_price"].median()
+        if pd.isna(train_med):
+            train_med = store_agg["mean_price"].median()
+        store_agg["mean_price"] = store_agg["mean_price"].fillna(train_med).astype(np.float32)
+        if "listed_ratio" in store_agg.columns:
+            store_agg["listed_ratio"] = store_agg["listed_ratio"].fillna(1.0).astype(np.float32)
+        before = len(store_agg)
+        store_agg = store_agg.dropna(subset=["sales_lag_28"]).reset_index(drop=True)
+        print(f"[-] Store warmup drop: {before - len(store_agg):,} dòng.")
+
+        # Dọn cột phụ
+        if "_price_listed" in sku_df.columns:
+            sku_df.drop(columns=["_price_listed"], inplace=True, errors="ignore")
 
         store_agg = reduce_mem_usage(store_agg, verbose=True)
         print("[✓] Hoàn thành tổng hợp dữ liệu Store-Level!")

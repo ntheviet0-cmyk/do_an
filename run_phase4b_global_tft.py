@@ -63,9 +63,12 @@ def main():
     print(f"[+] SKU: {sku_df['item_id'].nunique()} items | Stores: {sorted(store_df['store_id'].unique())}")
 
     past_cols = ["sales", "sales_lag_28", "sales_lag_35",
-                 "sales_rolling_mean_7", "sales_rolling_mean_28"]
+                 "sales_rolling_mean_7", "sales_rolling_mean_28",
+                 "sell_price_lag_28", "price_discount_lag_28",
+                 "price_momentum_lag_28", "sell_price_rolling_mean_7"]
+    # PHUONG AN A: FUTURE chi lich/SNAP/su kien (gia la unknown future)
     future_cols = [
-        "mean_price", "avg_discount", "is_weekend",
+        "is_weekend",
         "sin_wday", "cos_wday", "sin_month", "cos_month",
         "snap_active", "has_event", "event_count",
         "evt_Cultural", "evt_Religious", "evt_Sporting", "evt_National",

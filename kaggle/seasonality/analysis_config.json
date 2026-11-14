@@ -1,0 +1,20 @@
+{
+  "synthetic": false,
+  "data_root": "/kaggle/input/competitions/m5-forecasting-accuracy",
+  "train_end": 1885,
+  "start_date": "2011-01-29",
+  "end_date": "2016-03-27",
+  "n_series": 30490,
+  "sample_series_requested": 0,
+  "zero_rate": 0.6837330498411011,
+  "seed": 42,
+  "l12_per_stratum": 4,
+  "min_active_days": 365,
+  "annual_model": "log1p; piecewise linear trend knots 730d; weekday; event; annual Fourier K=1",
+  "weekly_heuristic_thresholds": {
+    "acf7": 0.1,
+    "spectral_share": 0.05,
+    "stl_strength": 0.1,
+    "profile_corr": 0.5
+  }
+}

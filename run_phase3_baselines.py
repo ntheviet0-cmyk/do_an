@@ -82,7 +82,8 @@ def run_phase3_experiment():
     print("\n[2/3] Đang huấn luyện mô hình Facebook Prophet (có Exogenous)...")
     if PROPHET_AVAILABLE:
         try:
-            exog_cols = ["mean_price", "avg_discount", "is_weekend", "snap_active", "has_event"]
+            # PHUONG AN A: Prophet exog chi lich/SNAP/su kien (gia la unknown future)
+            exog_cols = ["is_weekend", "snap_active", "has_event"]
             prophet_model = ProphetBaseline(exogenous_cols=exog_cols)
             
             # Format train dataframe cho Prophet
@@ -101,8 +102,9 @@ def run_phase3_experiment():
     # 3. BASELINE 3: Multivariate LSTM (PyTorch)
     # -------------------------------------------------------------
     print("\n[3/3] Đang huấn luyện mô hình Multivariate LSTM (PyTorch)...")
+    # PHUONG AN A: LSTM baseline chi dung qua khu (gia ban lagged, khong dung gia tuong lai)
     feature_cols = [
-        "total_sales", "mean_price", "avg_discount", "is_weekend",
+        "total_sales", "mean_price_lag_28", "avg_discount_lag_28", "is_weekend",
         "sin_wday", "cos_wday", "sin_month", "cos_month", "snap_active", "has_event",
         "event_count", "evt_Cultural", "evt_Religious", "evt_Sporting", "evt_National",
         "days_to_next_event", "days_since_last_event",
